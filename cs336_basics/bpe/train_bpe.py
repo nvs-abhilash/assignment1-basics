@@ -1,3 +1,5 @@
+import json
+
 import regex as re
 import time
 import itertools
@@ -9,10 +11,10 @@ import multiprocessing
 
 def timeit(func):
     def call_func(*args, **kwargs):
-        s = time.perf_counter_ns()
+        s = time.perf_counter()
         ret = func(*args, **kwargs)
-        e = time.perf_counter_ns()
-        print(f"{func.__name__} took {int((e - s) / 10**6)} milli seconds")
+        e = time.perf_counter()
+        print(f"{func.__name__} took {(e - s):.3f} seconds")
         return ret
 
     return call_func
@@ -112,7 +114,7 @@ def _pretokenize_mp(input_path: str, special_tokens: list[str]) -> dict[tuple[by
     return frequency_table
 
 
-# @timeit
+@timeit
 def pretokenize(input_path: str, special_tokens: list[str]) -> dict[tuple[bytes, ...], int]:
     # return _pretokenize_example(input_path, special_tokens)
     return _pretokenize_mp(input_path, special_tokens)
@@ -179,6 +181,14 @@ def compute_bpe_merge(
 
     return pair
 
+@timeit
+def merge_n_bpe(vocab, vocab_size, frequency_table, pair_freq, merges):
+    for _ in range(len(vocab), vocab_size):
+        merge = compute_bpe_merge(frequency_table, vocab, pair_freq)
+        merges.append(merge)
+        print(f"\rCompleted {len(vocab)} / {vocab_size}", end="", flush=True)
+    print()
+
 
 @timeit
 def train_bpe(
@@ -196,10 +206,7 @@ def train_bpe(
 
     # compute bpe merges
     pair_freq = compute_pair_freq(frequency_table)
-    for _ in range(len(vocab), vocab_size):
-        merge = compute_bpe_merge(frequency_table, vocab, pair_freq)
-        merges.append(merge)
-        print(f"Completed {len(vocab)} / {vocab_size}")
+    merge_n_bpe(vocab, vocab_size, frequency_table, pair_freq, merges)
 
     return vocab, merges
 
@@ -249,9 +256,16 @@ def main():
     print(f"Pretokens = {pt}")
 
 
-    print("# Problem train_bpe_tinystories")
+    print("# Training Tinystories")
     vocab, merges = train_bpe("data/TinyStoriesV2-GPT4-train.txt", vocab_size=10_000, special_tokens=["<|endoftext|>"])
-    breakpoint()
+
+    print("# Writing vocab and merges of tinystories to disk: data/bpe/tiny_stories_v2_gpt4_train_vocab.json, data/bpe/tiny_stories_v2_gpt4_train_merges.json")
+    with open("data/bpe/tiny_stories_v2_gpt4_train_vocab.json", "w") as f:
+        vocab = {str(i): s.hex() for i, s in vocab.items()}
+        json.dump(vocab, f, indent=2)
+    with open("data/bpe/tiny_stories_v2_gpt4_train_merges.json", "w") as f:
+            merges = [(a.hex(), b.hex()) for a, b in merges]
+            json.dump(merges, f, indent=2)
 
     print("Done")
 
